@@ -78,7 +78,7 @@ function amountCheck(resvETH, resvToken, targetValue, amountOut, exactIn = true)
         } else {
             expectedAmountOut = amountOut
         }
-       
+    
         frontrunValue = amountOutTraceback(resvETH, resvToken, expectedAmountOut, targetValue)
     } else {
         var expectedAmountIn;
@@ -103,14 +103,14 @@ function profitCheck(resvETH, resvToken, targetIn, targetOut, frontValue, exactI
     let frontRunAmountOut = AmountOut(frontValue, resvETH, resvToken);
     resvETH += frontValue;
     resvToken -= frontRunAmountOut;
-    console.log(`front run: ${frontValue / 1e18} BNB -> ${frontRunAmountOut} TOKEN`);
+    // console.log(`front run: ${frontValue / 1e18} BNB -> ${frontRunAmountOut} TOKEN`);
 
    
     if (exactIn) {
         let amountOut = AmountOut(targetIn, resvETH, resvToken)
         resvETH += targetIn
         resvToken -= amountOut
-        console.log(`target: ${targetIn / 1e18} BNB -> ${amountOut} TOKEN`);
+        // console.log(`target: ${targetIn / 1e18} BNB -> ${amountOut} TOKEN`);
         if (amountOut < targetOut) {
             console.log('\n');
             return 0
@@ -119,7 +119,7 @@ function profitCheck(resvETH, resvToken, targetIn, targetOut, frontValue, exactI
         let amountIn = getAmountIn(targetOut, resvETH, resvToken)
         resvETH += amountIn
         resvToken -= targetOut
-        console.log(`target: ${amountIn / 1e18} BNB -> ${targetOut} TOKEN`);
+        // console.log(`target: ${amountIn / 1e18} BNB -> ${targetOut} TOKEN`);
         if (amountIn > targetIn) {
             console.log('\n');
             return 0
@@ -128,14 +128,14 @@ function profitCheck(resvETH, resvToken, targetIn, targetOut, frontValue, exactI
 
    
     let backRunAmountOut = AmountOut(frontRunAmountOut, resvToken, resvETH);
-    console.log(`back run: ${frontRunAmountOut} TOKEN -> ${backRunAmountOut / 1e18} BNB\n`);
+    // console.log(`back run: ${frontRunAmountOut} TOKEN -> ${backRunAmountOut / 1e18} BNB\n`);
 
     return Math.floor(backRunAmountOut)
 }
 
 function parseToken(tokenObj, tokenAddress) {
-    console.log('tokenObj',tokenObj)
-    console.log('tokenAddress',tokenAddress)
+    // console.log('tokenObj',tokenObj)
+    // console.log('tokenAddress',tokenAddress)
     let checksumAddress = Object.keys(tokenObj).find(token => token.toLowerCase() === tokenAddress.toLowerCase());
     return tokenObj[checksumAddress]
 }

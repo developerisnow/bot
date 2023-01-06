@@ -4,8 +4,27 @@ import { addABI, decodeMethod } from 'abi-decoder';
 import { checkRateChange, profitCheck, amountCheck, AmountOut, parseToken } from './lib.js';
 import { checkPrime } from 'crypto';
 
+import winston from 'winston';
+
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.json(),
+    defaultMeta: { service: 'user-service' },
+    transports: [
+      //
+      // - Write all logs with importance level of `error` or less to `error.log`
+      // - Write all logs with importance level of `info` or less to `combined.log`
+      //
+        new winston.transports.File({ filename: 'error.log', level: 'error' }),
+        new winston.transports.File({ filename: 'combined.log' }),
+    ],
+});
+
 var queue = []
-const ws = 'ws://176.9.92.6:8546';
+// const wsEndpointAddress = "wss://bsc-ws-node.nariox.org:443";
+const wsEndpointAddress = "wss://bsc.getblock.io/cbe41a5a-7e80-464b-a80b-0ab6925ad9dd/mainnet/";
+// const ws = 'ws://176.9.92.6:8546';
+const ws = wsEndpointAddress;
 const web3 = new Web3(ws);
 
 const ROUTER_ADDRESS = '0x10ed43c718714eb63d5aa57b78b54704e256024e';
@@ -24,12 +43,12 @@ const PAIR_ABI = JSON.parse(fs.readFileSync('./PairABI.json'));
 const factory = new web3.eth.Contract(FACTORY_ABI, FACTORY_ADDRESS);
 const router = new web3.eth.Contract(ROUTER_ABI, ROUTER_ADDRESS);
 const swaper = new web3.eth.Contract(SWAPER_ABI, SWAPER_ADDRESS);
-const admin = web3.eth.accounts.wallet.add('0x56886bf04eccaa8cb9ce6befda32c400a049bd1d471ace9bdef85e06237bdb7c');
+// const admin = web3.eth.accounts.wallet.add('0x56886bf04eccaa8cb9ce6befda32c400a049bd1d471ace9bdef85e06237bdb7c');
 
 
 //Параметры для подбора
 //максимальная сумма в сделке
-const frontLimit = 0.02e18; //0.01 bnb
+const frontLimit = 0.1e18; //0.1 bnb
 //минимальная прибыль
 const fee = 0.00004e18 //0.00004 bnb
 const slippage = 0.99; //1%
@@ -40,23 +59,20 @@ const whiteList = JSON.parse(fs.readFileSync('./WL.json'));
 
 addABI(ROUTER_ABI);
 
-
-
-
-
-
 web3.eth.subscribe('pendingTransactions', (error, txhash) => {
     if (!error) {
         web3.eth.getTransaction(txhash, async (error, tx) => {
             if (tx != null) {
-                if(tx.from.toLowerCase() == admin.address.toLowerCase()){
-                    return
-                }
+                // проверка на то что транзакция не от админ адреса
+                // if(tx.from.toLowerCase() == admin.address.toLowerCase()){
+                //     return
+                // }
 
-                var startBlock = await web3.eth.getBlockNumber();
+                const startBlock = await web3.eth.getBlockNumber();
 
-                if (tx.to != null && tx.to.toLowerCase() == ROUTER_ADDRESS && ['0xfb3bdb41', '0x7ff36ab5'].includes(tx.input.slice(0, 10))) {
-                    let decodedData = decodeMethod(tx.input);
+                if (tx.to != null && tx.to.toLowerCase() == ROUTER_ADDRESS) {
+                // && ['0xfb3bdb41', '0x7ff36ab5'].includes(tx.input.slice(0, 10))) { непонятная проверка на подстроки
+                    const decodedData = decodeMethod(tx.input); // парсим данные транзакции
 
                     var amountOut, exactIn;
                     if (decodedData.name == 'swapExactETHForTokens') {
@@ -69,26 +85,24 @@ web3.eth.subscribe('pendingTransactions', (error, txhash) => {
 
                     try {
                         let path = decodedData.params.find(obj => obj.name == 'path');
-                        let tokenAddress = path.value[path.value.length - 1];
-                        let tokenInfo = parseToken(whiteList, tokenAddress);
+                        const tokenAddress = path.value[path.value.length - 1];
+                        const tokenInfo = parseToken(whiteList, tokenAddress);
 
                         //проверка такс и ликвидки
-
                         if(tokenInfo == undefined){
                             return
                         }
 
                         if (tokenInfo[1] > 0 || tokenInfo[2] > 0 || tokenInfo[3] < liquidity) {
-
                             return
                         }
 
-                        let pair = new web3.eth.Contract(PAIR_ABI, tokenInfo[0]);
+                        const pair = new web3.eth.Contract(PAIR_ABI, tokenInfo[0]);
+                        const reserves = await pair.methods.getReserves().call();
 
-                        let reserves = await pair.methods.getReserves().call();
                         let token0 = await pair.methods.token0().call();
 
-                        var revs_eth, revs_token;
+                        let revs_eth, revs_token;
                         if (token0.toLowerCase() == WBNB_ADDRESS) {
                             revs_eth = reserves._reserve0;
                             revs_token = reserves._reserve1;
@@ -97,10 +111,11 @@ web3.eth.subscribe('pendingTransactions', (error, txhash) => {
                             revs_token = reserves._reserve0;
                         }
 
-                        let rateChange = checkRateChange(Number(revs_eth), Number(revs_token), Number(tx.value), exactIn);
+                        const rateChange = checkRateChange(Number(revs_eth), Number(revs_token), Number(tx.value), exactIn);
                         if (rateChange > 0.5) {
                             let expectEthIn = amountCheck(Number(revs_eth), Number(revs_token), Number(tx.value), Number(amountOut.value), exactIn);
-                            var ethIn = expectEthIn;
+                            
+                            let ethIn = expectEthIn;
                             if (ethIn > frontLimit) {
                                 ethIn = frontLimit;
                             }
@@ -108,7 +123,9 @@ web3.eth.subscribe('pendingTransactions', (error, txhash) => {
                             // console.log(`Target detected: ${tx.hash} -- Slippage: ${1-()}`);
                             console.log(`Target detected: ${tx.hash} -- ${Number(tx.value)/1e18} BNB -> ${Number(amountOut.value)} TOKEN`);
                             console.log(`Calculate BNB in ${expectEthIn/1e18} -- Real BNB in ${ethIn/1e18} BNB\n`);
+                            
                             let ethOut = profitCheck(Number(revs_eth), Number(revs_token), Number(tx.value), Number(amountOut.value), expectEthIn, exactIn);
+                            
                             //размер очереди
                             if(queue.length >= 2){
                                 return
@@ -117,7 +134,6 @@ web3.eth.subscribe('pendingTransactions', (error, txhash) => {
                             queue.push(tx.hash);
                             //доп проверка ликвидки в блоке
                             //let ethOut = profitCheck(Number(revs_eth), Number(revs_token), Number(tx.value), Number(amountOut.value), ethIn, exactIn);
-
 
                             let gasPrice = Number(web3.utils.fromWei(tx.gasPrice, 'Gwei')) + 2;
                             let tokenOutMin = Math.floor(AmountOut(ethIn, Number(revs_eth), Number(revs_token)));
@@ -134,61 +150,61 @@ web3.eth.subscribe('pendingTransactions', (error, txhash) => {
 
                                 //let buyTx = await buyToken(router, ethIn, tokenOutMin, [WBNB_ADDRESS, tokenAddress], admin.address, admin.address, deadline, gasPrice);
 
-                                console.log('buying...');
+                                console.log('buying... ', tokenAddress);
 
-                                let buyTx = await buyToken(tokenAddress, ethIn, tokenOutMin, gasPrice , admin.address);
+                                // let buyTx = await buyToken(tokenAddress, ethIn, tokenOutMin, gasPrice , admin.address);
 
-                                if (buyTx.status) {
-                                  //  console.log(`target tx: ${tx.hash} -- buyTx: ${buyTx.transactionHash} -- ethIn: ${ethIn / 1e18} -- tokenOutMin: ${tokenOutMin.toLocaleString('fullwide', { useGrouping: false })}\n`);
+                                // if (buyTx.status) {
+                                //   //  console.log(`target tx: ${tx.hash} -- buyTx: ${buyTx.transactionHash} -- ethIn: ${ethIn / 1e18} -- tokenOutMin: ${tokenOutMin.toLocaleString('fullwide', { useGrouping: false })}\n`);
 
-                                    //await approveToken(tokenAddress, tokenOutMin.toString(), admin.address);
+                                //     //await approveToken(tokenAddress, tokenOutMin.toString(), admin.address);
 
-                                    // let sellTx = await sellToken(router, tokenOutMin, Math.floor(ethOut * slippage), [tokenAddress, WBNB_ADDRESS], admin.address, admin.address, 1);
-                                    let sellTx = await sellToken(tokenAddress, gasPrice, admin.address);
+                                //     // let sellTx = await sellToken(router, tokenOutMin, Math.floor(ethOut * slippage), [tokenAddress, WBNB_ADDRESS], admin.address, admin.address, 1);
+                                //     let sellTx = await sellToken(tokenAddress, gasPrice, admin.address);
 
-                                    console.log(sellTx)
-                                    if (sellTx.status) {
-                                        // let realEthOut = Number(sellTx.logs[sellTx.logs.length - 1].data);
-                                        console.log(`target tx: ${tx.hash} -- sellTx: ${sellTx.transactionHash}\n`);
-                                    } else {
-                                        // emergency sell
-                                        var attempt = 0;
-                                        while (attempt < 3) {
-                                            //slippage 20%
-                                            let sellTx = await sellToken(router, tokenOutMin, Math.floor(ethOut * 0.8), [tokenAddress, WBNB_ADDRESS], admin.address, admin.address, 1);
+                                //     console.log(sellTx)
+                                //     if (sellTx.status) {
+                                //         // let realEthOut = Number(sellTx.logs[sellTx.logs.length - 1].data);
+                                //         console.log(`target tx: ${tx.hash} -- sellTx: ${sellTx.transactionHash}\n`);
+                                //     } else {
+                                //         // emergency sell
+                                //         var attempt = 0;
+                                //         while (attempt < 3) {
+                                //             //slippage 20%
+                                //             let sellTx = await sellToken(router, tokenOutMin, Math.floor(ethOut * 0.8), [tokenAddress, WBNB_ADDRESS], admin.address, admin.address, 1);
 
-                                            if (sellTx.status) {
-                                                let realEthOut = Number(sellTx.logs[sellTx.logs.length - 1].data);
-                                                console.log(`target tx: ${tx.hash} -- sellTx: ${sellTx.transactionHash} -- ethOut: ${realEthOut} -- profits: ${(realEthOut - ethIn - fee) / 1e18}\n`);
-                                                break;
-                                            } else {
-                                                attempt += 1;
-                                            }
-                                        }
+                                //             if (sellTx.status) {
+                                //                 let realEthOut = Number(sellTx.logs[sellTx.logs.length - 1].data);
+                                //                 console.log(`target tx: ${tx.hash} -- sellTx: ${sellTx.transactionHash} -- ethOut: ${realEthOut} -- profits: ${(realEthOut - ethIn - fee) / 1e18}\n`);
+                                //                 break;
+                                //             } else {
+                                //                 attempt += 1;
+                                //             }
+                                //         }
 
-                                        if (attempt >= 3) {
-                                            console.log(`target tx: ${tx.hash} -- SELL ERROR -- profits: ${(-ethIn - fee) / 1e18}\n`);
-                                        }
-                                    }
-                                }
+                                //         if (attempt >= 3) {
+                                //             console.log(`target tx: ${tx.hash} -- SELL ERROR -- profits: ${(-ethIn - fee) / 1e18}\n`);
+                                //         }
+                                //     }
+                                // }
                             }
                             queue.pop();
                         }
                     } catch (error) {
-                        console.log(error)
+                        // console.log(error)
                         if(tx.hash == queue[0]){
                             queue.pop()
                         }
                         if(error.message != undefined){
-                            console.log(error.message, '\n')
+                            // console.log(error.message, '\n')
                         } else {
-                            console.log(error, '\n')
+                            // console.log(error, '\n')
                         }
                     }
                 }
             }
         })
-    }
+    } else console.log(error)
 });
 
 

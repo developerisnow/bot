@@ -3,11 +3,17 @@
   "version": "1.0.0",
   "main": "index.js",
   "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}'",
+    "format": "prettier --write 'src/**/*.{js,jsx,ts,tsx}'"
+  },
   "dependencies": {
     "@pancakeswap-libs/sdk": "^1.0.1",
-    "ethereumjs-common": "^1.5.2",
     "abi-decoder": "^2.4.0",
+    "ethereumjs-common": "^1.5.2",
     "node-fetch": "^3.3.0",
-    "web3": "^1.7.4"
+    "web3": "^1.7.4",
+    "winston": "^3.8.2"
   }
 }
