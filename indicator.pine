@@ -1,0 +1,892 @@
+//@version=5
+
+indicator('Nitrio Volume Profile',  overlay=true ,max_bars_back = 5000, max_lines_count = 500, max_boxes_count = 500)
+
+// -Inputs ══════════════════════════════════════════════════════════════════════════════════════ //
+
+// ---------------------------------------------------------------------------------------------- //
+// Definitions ---------------------------------------------------------------------------------- //
+
+group_support_and_resistance            = 'Consecutively Increasing Volume / Price'
+tooltip_support_and_resistance          = 'Moments where\n' + 
+                                          '- price is bullish or bearish consecutively for minimum 3 bars and on increasing volume with at least one bar\'s volume is above volume moving average\n' + 
+                                          'or\n' + 
+                                          '- price is bullish or bearish consecutively on increasing/decreasing price for minimum 3 bars'
+
+group_volume_spike_sign_of_exhaustion   = 'Volume Spike - Sign of Exhaustion'
+tooltip_volume_spike_sign_of_exhaustion = 'Moments where\n' + 
+                                          'huge volume detected : current volume is grater than the product of the theshold value and volume moving average\n' + 
+                                          'presents idea : huge volume may be a sign of exhaustion and may lead to sharp reversals'
+
+group_high_volatility                   = 'High Volatility'
+tooltip_high_volatility                 = 'Moments where\n' + 
+                                           'price range of the current bar is grater than the product of the theshold value and average true range value of defined period'
+
+group_volume_weighted_colored_bars      = 'Volume Weighted Colored Bars'
+tooltip_volume_weighted_colored_bars    = 'Colors bars based on the bar\'s volume relative to volume moving average\n' + 
+                                          'trading tip : a potential breakout trading opportunity may occur when price moves above a resistance level or moves below a support level on increasing volume'
+
+tooltip_volume_moving_average           = 'Volume simple moving average, serves as reference to\n' + 
+                                          '- Support and Resistance,\n' + 
+                                          '- Volume Weighted Colored Bars,\n' + 
+                                          '- Volume Spike - Sign of Exhaustion\ncalculations'
+
+// User Input Declarations ---------------------------------------------------------------------- //
+
+// ---------------------------------------------------------------------------------------------- //
+// Consecutively Increasing Volume / Price  ----------------------------------------------------- //
+
+srLookbackRange = 'Fixed Range'
+i_lenLookback = 360
+
+i_sourceSnR = 'Volume'
+i_isSnR = false
+i_srLnColor = #4dd0e141
+i_srLnWidth = 3
+i_srLnStyle = 'Solid'
+
+// ---------------------------------------------------------------------------------------------- //
+// Volume Spike - Sign of Exhaustion ------------------------------------------------------------ //
+
+i_vSpikeLb = false
+i_vSpikeThresh = 4.669
+i_isSnRSpike = false
+i_spLnColor = #ffb74d69
+i_spLnWidth = 3
+i_spLnStyle = 'Both'
+i_spLnBullLevel = 'Both'
+i_spLnBearLevel = 'Both'
+
+// ---------------------------------------------------------------------------------------------- //
+// High Volatility ------------------------------------------------------------------------------ //
+
+i_hATRLb = true
+i_atrLength = 11
+i_atrMult = 2.718
+i_hATRLn = false
+i_hATRLnColor = #81c78455
+i_hATRLnWidth = 3
+i_hATRLnStyle = 'Solid'
+i_haLnBullLevel = 'Both'
+i_haLnBearLevel = 'Both'
+
+// Volume Moving Average : Base ----------------------------------------------------------------- //
+
+i_vSMA = ta.sma(nz(volume), 89)
+
+
+// -Calculations ════════════════════════════════════════════════════════════════════════════════ //
+
+// ---------------------------------------------------------------------------------------------- //
+// Definitions ---------------------------------------------------------------------------------- //
+
+nzVolume  = nz(volume)
+risingVol = nzVolume >= nzVolume[1]
+
+bullCandle = close > open
+bearCandle = close < open
+
+risingPrice  = close > close[1]
+fallingPrice = close < close[1]
+
+lwstPrice = ta.lowest (low , 3)
+hstPrice  = ta.highest(high, 3)
+
+weightedATR = i_atrMult * ta.atr(i_atrLength)
+range_1     = math.abs(high - low)
+
+x2 = timenow + 7 * math.round(ta.change(time))
+
+var sProcessing = false
+if srLookbackRange == 'Visible Range'
+    sProcessing := time >= chart.left_visible_bar_time
+else
+    sProcessing := time > timenow - i_lenLookback * (timeframe.isintraday ? timeframe.multiplier * 86400000 / 1440 : timeframe.multiplier * 86400000)
+
+// ---------------------------------------------------------------------------------------------- //
+// Consecutively Increasing Volume / Price  ----------------------------------------------------- //
+
+falling = if i_sourceSnR == 'Volume'
+    bearCandle and bearCandle[1] and bearCandle[2] and nzVolume > i_vSMA and risingVol and risingVol[1]
+else
+    bearCandle and bearCandle[1] and bearCandle[2] and fallingPrice and fallingPrice[1] and fallingPrice[2]
+
+rising = if i_sourceSnR == 'Volume'
+    bullCandle and bullCandle[1] and bullCandle[2] and nzVolume > i_vSMA and risingVol and risingVol[1]
+else
+    bullCandle and bullCandle[1] and bullCandle[2] and risingPrice and risingPrice[1] and risingPrice[2]
+
+y  = ta.valuewhen(falling or rising, falling ? lwstPrice : hstPrice, 0)
+x1 = ta.valuewhen(falling or rising, time, 0)
+
+// ---------------------------------------------------------------------------------------------- //
+// Volume Spike - Sign of Exhaustion ------------------------------------------------------------ //
+
+exhaustVol = nzVolume > i_vSpikeThresh * i_vSMA
+
+x1V = ta.valuewhen(exhaustVol, time, 0)
+
+// ---------------------------------------------------------------------------------------------- //
+// High Volatility ------------------------------------------------------------------------------ //
+
+highVolatility = range_1 > weightedATR
+
+x1hV = ta.valuewhen(highVolatility, time, 0)
+
+// ---------------------------------------------------------------------------------------------- //
+// Volume Weighted Colored Bars ----------------------------------------------------------------- //
+
+
+// -Plotting ════════════════════════════════════════════════════════════════════════════════════ //
+
+f_getStyle(_s) =>
+    _s == 'Solid' ? line.style_solid : _s == 'Dotted' ? line.style_dotted : line.style_dashed
+
+// ---------------------------------------------------------------------------------------------- //
+// Consecutively Increasing Volume / Price  ----------------------------------------------------- //
+
+var line srLine = na
+
+if i_isSnR and falling and sProcessing
+    if falling == falling[1]
+        line.delete(srLine[1])
+        
+    srLine := line.new(x1, y, x2, y, xloc.bar_time, extend.none, i_srLnColor, f_getStyle(i_srLnStyle), i_srLnWidth)
+    srLine
+
+if i_isSnR and rising and sProcessing
+    if rising == rising[1]
+        line.delete(srLine[1])
+        
+    srLine := line.new(x1, y, x2, y, xloc.bar_time, extend.none, i_srLnColor, f_getStyle(i_srLnStyle), i_srLnWidth)
+    srLine
+
+// ---------------------------------------------------------------------------------------------- //
+// Volume Spike - Sign of Exhaustion ------------------------------------------------------------ //
+
+var line spikeLine  = na
+var line spikeLine1 = na
+var line spikeLine2 = na
+var line spikeLine3 = na
+
+if i_isSnRSpike and exhaustVol and sProcessing
+
+    if bullCandle
+        if i_spLnBullLevel == 'High'
+            if exhaustVol == exhaustVol[1] and not bearCandle[1]
+                line.delete(spikeLine[1])
+                
+            spikeLine := line.new(x1V, high, x2, high, xloc.bar_time, extend.none, i_spLnColor, f_getStyle(i_spLnStyle), i_spLnWidth)
+            spikeLine
+
+        else if i_spLnBullLevel == 'Close'
+            if exhaustVol == exhaustVol[1] and not bearCandle[1]
+                line.delete(spikeLine[1])
+                
+            spikeLine := line.new(x1V, close, x2, close, xloc.bar_time, extend.none, i_spLnColor, f_getStyle(i_spLnStyle), i_spLnWidth)
+            spikeLine
+        else
+
+            if exhaustVol == exhaustVol[1] and not bearCandle[1]
+                line.delete(spikeLine1[1]), line.delete(spikeLine2[1]), line.delete(spikeLine3[1])
+            
+            spikeLine1 := line.new(x1V, close, x2, close, xloc.bar_time, extend.none, i_spLnColor, f_getStyle(i_spLnStyle), i_spLnWidth)
+            spikeLine2 := line.new(x1V, math.avg(high, close), x2, math.avg(high, close), xloc.bar_time, extend.none, i_spLnColor, f_getStyle('Dotted'), i_spLnWidth - 1)
+            spikeLine3 := line.new(x1V, high, x2, high, xloc.bar_time, extend.none, i_spLnColor, f_getStyle(i_spLnStyle), i_spLnWidth)
+            spikeLine3
+
+    if bearCandle
+        if i_spLnBearLevel == 'Low'
+            if exhaustVol == exhaustVol[1] and not bullCandle[1]
+                line.delete(spikeLine[1])
+                
+            spikeLine := line.new(x1V, low, x2, low, xloc.bar_time, extend.none, i_spLnColor, f_getStyle(i_spLnStyle), i_spLnWidth)
+            spikeLine
+
+        else if i_spLnBearLevel == 'Close'
+            if exhaustVol == exhaustVol[1] and not bullCandle[1]
+                line.delete(spikeLine[1])
+                
+            spikeLine := line.new(x1V, close, x2, close, xloc.bar_time, extend.none, i_spLnColor, f_getStyle(i_spLnStyle), i_spLnWidth)
+            spikeLine
+        else
+
+            if exhaustVol == exhaustVol[1] and not bullCandle[1]
+                line.delete(spikeLine1[1]), line.delete(spikeLine2[1]), line.delete(spikeLine3[1])
+                
+            spikeLine1 := line.new(x1V, low, x2, low, xloc.bar_time, extend.none, i_spLnColor, f_getStyle(i_spLnStyle), i_spLnWidth)
+            spikeLine2 := line.new(x1V, math.avg(low, close), x2, math.avg(low, close), xloc.bar_time, extend.none, i_spLnColor, f_getStyle('Dotted'), i_spLnWidth - 1)
+            spikeLine3 := line.new(x1V, close, x2, close, xloc.bar_time, extend.none, i_spLnColor, f_getStyle(i_spLnStyle), i_spLnWidth)
+            spikeLine3
+
+plotchar(i_vSpikeLb and nzVolume and sProcessing ? exhaustVol : na, 'Exhaustion Bar', '🚦', location.abovebar, size=size.tiny)
+
+// ---------------------------------------------------------------------------------------------- //
+// High Volatility ------------------------------------------------------------------------------ //
+
+var line volatileLine  = na
+var line volatileLine1 = na
+var line volatileLine2 = na
+var line volatileLine3 = na
+
+if i_hATRLn and highVolatility and sProcessing
+
+    if bullCandle
+        if i_haLnBullLevel == 'High'
+            if highVolatility == highVolatility[1] and not bearCandle[1]
+                line.delete(volatileLine[1])
+                
+            volatileLine := line.new(x1hV, high, x2, high, xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle(i_hATRLnStyle), i_hATRLnWidth)
+            volatileLine
+
+        else if i_haLnBullLevel == 'Close'
+            if highVolatility == highVolatility[1] and not bearCandle[1]
+                line.delete(volatileLine[1])
+                
+            volatileLine := line.new(x1hV, close, x2, close, xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle(i_hATRLnStyle), i_hATRLnWidth)
+            volatileLine
+        else
+
+            if highVolatility == highVolatility[1] and not bearCandle[1]
+                line.delete(volatileLine1[1]), line.delete(volatileLine2[1]), line.delete(volatileLine3[1])
+                
+            volatileLine1 := line.new(x1hV, close, x2, close, xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle(i_hATRLnStyle), i_hATRLnWidth)
+            volatileLine2 := line.new(x1hV, math.avg(high, close), x2, math.avg(high, close), xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle('Dotted'), i_hATRLnWidth - 1)
+            volatileLine3 := line.new(x1hV, high, x2, high, xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle(i_hATRLnStyle), i_hATRLnWidth)
+            volatileLine3
+
+    if bearCandle
+        if i_haLnBearLevel == 'Low'
+            if highVolatility == highVolatility[1] and not bullCandle[1]
+                line.delete(volatileLine[1])
+                
+            volatileLine := line.new(x1hV, low, x2, low, xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle(i_hATRLnStyle), i_hATRLnWidth)
+            volatileLine
+
+        else if i_haLnBearLevel == 'Close'
+            if highVolatility == highVolatility[1] and not bullCandle[1]
+                line.delete(volatileLine[1])
+                
+            volatileLine := line.new(x1hV, close, x2, close, xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle(i_hATRLnStyle), i_hATRLnWidth)
+            volatileLine
+        else
+
+            if highVolatility == highVolatility[1] and not bullCandle[1]
+                line.delete(volatileLine1[1]), line.delete(volatileLine2[1]), line.delete(volatileLine3[1])
+                
+            volatileLine1 := line.new(x1hV, low, x2, low, xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle(i_hATRLnStyle), i_hATRLnWidth)
+            volatileLine2 := line.new(x1hV, math.avg(low, close), x2, math.avg(low, close), xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle('Dotted'), i_hATRLnWidth - 1)
+            volatileLine3 := line.new(x1hV, close, x2, close, xloc.bar_time, extend.none, i_hATRLnColor, f_getStyle(i_hATRLnStyle), i_hATRLnWidth)
+            volatileLine3
+
+plotchar(i_hATRLb and sProcessing ? highVolatility : na, 'High Volatile Bar', '⚡', location.belowbar, size=size.tiny)
+
+// ---------------------------------------------------------------------------------------------- //
+// Volume Profile (Price by Volume)  ------------------------------------------------------------ //
+
+f_drawLabelX(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip) =>
+    var id = label.new(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip)
+    label.set_xy(id, _x, _y)
+    label.set_text(id, _text)
+    label.set_tooltip(id, _tooltip)
+    label.set_textcolor(id, _textcolor)
+
+f_drawLineX(_x1, _y1, _x2, _y2, _xloc, _extend, _color, _style, _width) =>
+    var id = line.new(_x1, _y1, _x2, _y2, _xloc, _extend, _color, _style, _width)
+    line.set_xy1(id, _x1, _y1)
+    line.set_xy2(id, _x2, _y2)
+    line.set_color(id, _color)
+
+group_volume_profile    = 'Volume Profile / Price by Volume'
+tooltip_volume_profile  = 'Volume Profile (also known as Price by Volume) is an charting study that displays trading activity over a specified time period at specific price levels'
+
+volumeProfile     = true
+vpLookbackRange   = 'Fixed Range'
+lookbackLength    = 360
+avgVolNodeCol     = color.new(#787b86, 25)
+highVolNodeCol    = color.new(#f57c00, 50)
+lowVolNodeCol     = color.new(#787b86, 75)
+isValueArea       = 68
+valueAreaHigh     = true
+vahColor          = color.new(#ffeb3b, 0)
+pointOfControl    = true
+pocColor          = color.new(#ff0000, 0)
+valueAreaLow      = true
+valColor          = color.new(#ffeb3b, 0)
+priceLevels       = true
+labelColor        = color.new(#8c92a4, 0)
+profileLevels     = 100
+horizontalOffset  = 13
+
+tooltip_sd        = 'Defines the relationship between the price of a given asset and the willingness of traders to either buy or sell it'
+group_supply_demand = 'Supply and Demand Settings'
+supplyDemand      = false
+lowVolNodesVal    = 15
+supplyDemandCol   = color.new(#512da8, 80)
+
+priceHighestFR    = ta.highest(high, lookbackLength)
+priceLowestFR     = ta.lowest (low , lookbackLength)
+
+var startBarIndexX = 0
+if time == chart.left_visible_bar_time
+    startBarIndexX := bar_index
+
+if vpLookbackRange == 'Visible Range'
+    lookbackLength    := last_bar_index -  startBarIndexX
+
+f_getHighLow() =>
+    var htf_h  = 0., var htf_l  = 0.
+    
+    if vpLookbackRange == 'Visible Range'
+        if time == chart.left_visible_bar_time
+            htf_l := low 
+            htf_h := high
+        else if time > chart.left_visible_bar_time
+            htf_l := math.min(low , htf_l)
+            htf_h := math.max(high, htf_h)
+    else
+        htf_h := priceHighestFR
+        htf_l := priceLowestFR
+
+    [htf_h, htf_l]
+
+[priceHighest, priceLowest] = f_getHighLow()
+priceStep         = (priceHighest - priceLowest) / profileLevels
+barPriceLow       = low
+barPriceHigh      = high
+var levelAbovePoc = 0
+var levelBelowPoc = 0
+var pocLevel      = 0
+
+volumeStorage     = array.new_float(profileLevels + 1, 0.)
+volumeStorageB    = array.new_float(profileLevels + 1, 0.)
+var a_profile     = array.new_box()
+
+if barstate.islast and nzVolume
+    if array.size(a_profile) > 0
+        for i = 1 to array.size(a_profile)
+            box.delete(array.shift(a_profile))
+
+    for barIndex = 0 to lookbackLength - 1
+        level = 0
+        for priceLevel = priceLowest to priceHighest by priceStep
+            if barPriceHigh[barIndex] >= priceLevel and barPriceLow[barIndex] < priceLevel + priceStep
+                array.set(volumeStorage, level, array.get(volumeStorage, level) + nzVolume[barIndex] * ((barPriceHigh[barIndex] - barPriceLow[barIndex]) == 0 ? 1 : priceStep / (barPriceHigh[barIndex] - barPriceLow[barIndex])) )
+
+                if bullCandle[barIndex]
+                    array.set(volumeStorageB, level, array.get(volumeStorageB, level) + nzVolume[barIndex] * ((barPriceHigh[barIndex] - barPriceLow[barIndex]) == 0 ? 1 : priceStep / (barPriceHigh[barIndex] - barPriceLow[barIndex])) )
+            level += 1
+
+    pocLevel  := array.indexof(volumeStorage, array.max(volumeStorage))
+    totalVolumeTraded = array.sum(volumeStorage) * isValueArea
+    valueArea  = array.get(volumeStorage, pocLevel)
+
+    levelAbovePoc := pocLevel
+    levelBelowPoc := pocLevel
+    
+    while valueArea < totalVolumeTraded
+        if levelBelowPoc == 0 and levelAbovePoc == profileLevels - 1
+            break
+
+        volumeAbovePoc = 0.
+        if levelAbovePoc < profileLevels - 1 
+            volumeAbovePoc := array.get(volumeStorage, levelAbovePoc + 1)
+
+        volumeBelowPoc = 0.
+        if levelBelowPoc > 0
+            volumeBelowPoc := array.get(volumeStorage, levelBelowPoc - 1)
+        
+        if volumeAbovePoc >= volumeBelowPoc
+            valueArea     += volumeAbovePoc
+            levelAbovePoc += 1
+        else
+            valueArea     += volumeBelowPoc
+            levelBelowPoc -= 1
+
+    f_drawLineX(bar_index - lookbackLength + 1, priceLowest + (levelAbovePoc + 1.00) * priceStep, volumeProfile ? bar_index + horizontalOffset + 50 : bar_index + 7, priceLowest + (levelAbovePoc + 1.00) * priceStep, xloc.bar_index, extend.none, valueAreaHigh  ? vahColor : #00000000, line.style_solid, 2)
+    f_drawLineX(bar_index - lookbackLength + 1, priceLowest + (pocLevel      + 0.50) * priceStep, volumeProfile ? bar_index + horizontalOffset + 50 : bar_index + 7, priceLowest + (pocLevel      + 0.50) * priceStep, xloc.bar_index, extend.none, pointOfControl ? pocColor : #00000000, line.style_solid, 2)
+    f_drawLineX(bar_index - lookbackLength + 1, priceLowest + (levelBelowPoc + 0.00) * priceStep, volumeProfile ? bar_index + horizontalOffset + 50 : bar_index + 7, priceLowest + (levelBelowPoc + 0.00) * priceStep, xloc.bar_index, extend.none, valueAreaLow   ? valColor : #00000000, line.style_solid, 2)
+
+    if priceLevels
+        f_drawLabelX(volumeProfile ? bar_index + horizontalOffset + 50 : bar_index + 7, priceHighest, str.tostring(priceHighest, format.mintick), xloc.bar_index, yloc.price, color.new(labelColor, 89), label.style_label_down, labelColor, size.normal, text.align_left, 'Profile High - during last ' + str.tostring(lookbackLength) + ' bars\n %' + str.tostring((priceHighest - priceLowest) / priceLowest  * 100, '#.##') + ' higher than the Profile Low')
+        f_drawLabelX(volumeProfile ? bar_index + horizontalOffset + 50 : bar_index + 7, priceLowest , str.tostring(priceLowest , format.mintick), xloc.bar_index, yloc.price, color.new(labelColor, 89), label.style_label_up  , labelColor, size.normal, text.align_left, 'Profile Low - during last '  + str.tostring(lookbackLength) + ' bars\n %' + str.tostring((priceHighest - priceLowest) / priceHighest * 100, '#.##') + ' lower than the Profile High')
+        f_drawLabelX(volumeProfile ? bar_index + horizontalOffset + 57 : bar_index + 13, priceLowest + (levelAbovePoc + 1.00) * priceStep, str.tostring(priceLowest + (levelAbovePoc + 1.00) * priceStep, format.mintick), xloc.bar_index, yloc.price, valueAreaHigh  ? color.new(labelColor, 89) : #00000000, label.style_label_left, valueAreaHigh  ? labelColor : #00000000, size.normal, text.align_left, 'Value Area High Price')
+        f_drawLabelX(volumeProfile ? bar_index + horizontalOffset + 57 : bar_index + 13, priceLowest + (pocLevel      + 0.50) * priceStep, str.tostring(priceLowest + (pocLevel      + 0.50) * priceStep, format.mintick), xloc.bar_index, yloc.price, pointOfControl ? color.new(labelColor, 89) : #00000000, label.style_label_left, pointOfControl ? labelColor : #00000000, size.normal, text.align_left, 'Point Of Control Price')
+        f_drawLabelX(volumeProfile ? bar_index + horizontalOffset + 57 : bar_index + 13, priceLowest + (levelBelowPoc + 0.00) * priceStep, str.tostring(priceLowest + (levelBelowPoc + 0.00) * priceStep, format.mintick), xloc.bar_index, yloc.price, valueAreaLow   ? color.new(labelColor, 89) : #00000000, label.style_label_left, valueAreaLow   ? labelColor : #00000000, size.normal, text.align_left, 'Value Area Low Price')
+
+    for level = 0 to profileLevels - 1
+        if volumeProfile
+            levelColor = array.get(volumeStorage, level) / array.max(volumeStorage) > .8 ? highVolNodeCol : array.get(volumeStorage, level) / array.max(volumeStorage) < .2 ? lowVolNodeCol : avgVolNodeCol
+            array.push(a_profile, box.new( bar_index + horizontalOffset + 49 - int( array.get(volumeStorage, level) / array.max(volumeStorage) * 41), priceLowest + (level + 0.25) * priceStep, 
+                                       bar_index + horizontalOffset + 50, priceLowest + (level + 0.75) * priceStep, levelColor, bgcolor = levelColor ))
+            bullBearPower  = 2 * array.get(volumeStorageB, level) - array.get(volumeStorage, level)
+            array.push(a_profile, box.new(bar_index + horizontalOffset + 51 , priceLowest + (level + 0.25) * priceStep, 
+                                      bar_index + horizontalOffset + 51 + (bullBearPower > 0 ? 1 : -1) * int( bullBearPower / array.max(volumeStorage) * 73), priceLowest + (level + 0.75) * priceStep, bullBearPower > 0 ? color.new(#26a69a, 50) : color.new(#ef5350, 50), bgcolor = bullBearPower > 0 ? color.new(#26a69a, 50) : color.new(#ef5350, 50) ))
+
+        if supplyDemand
+            if array.get(volumeStorage, level) / array.max(volumeStorage) < lowVolNodesVal
+                array.push(a_profile, box.new(bar_index - lookbackLength + 1, priceLowest + (level + 0.00) * priceStep, bar_index + 7, priceLowest + (level + 1.00) * priceStep, #00000000, bgcolor = supplyDemandCol ))
+
+    if volumeProfile
+        array.push(a_profile, box.new(bar_index - lookbackLength + 1, priceLowest, bar_index + horizontalOffset + 50, priceHighest, color.new(color.gray, 37), 1, line.style_dotted, bgcolor=#00000000 ))
+
+// Volume Profile (Price by Volume)  ------------------------------------------------------------ //
+// ---------------------------------------------------------------------------------------------- //
+// Volume Weighted Colored Bars ----------------------------------------------------------------- //
+
+i_vwcb           = false
+i_vwcbHighThresh = 1.618
+i_vwcbLowThresh  = 0.618
+vwcbCol = nzVolume > i_vSMA * i_vwcbHighThresh ? bearCandle ? #910000 : #006400 : nzVolume < i_vSMA * i_vwcbLowThresh ? bearCandle ? #FF9800 : #7FFFD4 : na
+barcolor(i_vwcb and nzVolume ? vwcbCol : na, title='Volume Weighted Colored Bars')
+
+// Volume Weighted Colored Bars ----------------------------------------------------------------- //
+// ---------------------------------------------------------------------------------------------- //
+// Alerts --------------------------------------------------------------------------------------- //
+
+priceTxt  = str.tostring(close, format.mintick)
+tickerTxt = syminfo.ticker
+
+if ta.cross(close, priceLowest + (pocLevel + .50) * priceStep) and pointOfControl
+    alert(tickerTxt + ' Volume Profile : Price touches/crosses Point Of Control Line, price ' + priceTxt)
+
+if ta.cross(close, priceLowest + (levelAbovePoc + 1.00) * priceStep) and valueAreaHigh
+    alert(tickerTxt + ' Volume Profile : Price touches/crosses Value Area High Line, price '  + priceTxt)
+
+if ta.cross(close, priceLowest + (levelBelowPoc + 0.00) * priceStep) and valueAreaLow
+    alert(tickerTxt + ' Volume Profile : Price touches/crosses Value Area Low Line, price '   + priceTxt)
+ 
+if nzVolume > i_vSMA * i_vwcbHighThresh and i_vwcb
+    alert(tickerTxt + ' High Volume, price ' + priceTxt)
+
+if nzVolume > i_vSMA * i_vSpikeThresh and i_vSpikeLb
+    alert(tickerTxt + ' Volume Spike : sign of exhaustion, huge volume increase detected, price ' + priceTxt)
+
+if ta.crossover(range_1, weightedATR) and i_hATRLb
+    alert(tickerTxt + ' High Volatility detected, price ' + priceTxt)
+
+// Alerts --------------------------------------------------------------------------------------- //
+// ---------------------------------------------------------------------------------------------- //
+
+var table logo = table.new(position.bottom_right, 1, 1)
+if barstate.islast
+    table.cell(logo, 0, 0, '☼☾  ', text_size=size.normal, text_color=color.teal)
+
+/////////////////////////////////// SFP
+
+
+lookback = 4899
+is_opposite = false
+plen = 21
+textcolor = color.orange
+position = position.top_right
+textcolortbl = color.orange
+
+ph = ta.pivothigh(plen, 0)
+pl = ta.pivotlow(plen, 0)
+
+f_get_candle(_index) =>
+    [open[_index], high[_index], low[_index], close[_index], bar_index[_index]]
+    
+
+f_is_candle_up(_open, _close) =>
+    _open < _close
+    
+
+f_sfp() =>
+    [so, sh, sl, sc, si] = f_get_candle(0)
+    
+    // High SFP
+    hc1 = ph
+    maxp = high[1]
+    hc2 = false
+    hx = 0
+    hy = 0.0
+    for i=1 to lookback
+        [co, ch, cl, cc, ci] = f_get_candle(i)
+        if ch >= sh
+            break
+        if ch < sh and ch > math.max(so, sc) and ph[bar_index - ci] and ch > maxp
+            hc2 := true
+            hx := bar_index[i]
+            hy := ch
+        if ch > maxp
+            maxp := ch
+    
+    hcs = hc1 and hc2
+    
+    // Low SFP
+    lc1 = pl
+    minp = low[1]
+    lc2 = false
+    lx = 0
+    ly = 0.0
+    for i=2 to lookback
+        [co, ch, cl, cc, ci] = f_get_candle(i)
+        if cl < sl
+            break
+        if sl < cl and math.min(so, sc) > cl and pl[bar_index - ci] and cl < minp
+            lc2 := true
+            lx := bar_index[i]
+            ly := cl
+        if cl < minp
+            minp := cl
+    
+    
+    lcs = lc1 and lc2
+    
+    [hcs, hx, hy, lcs, lx, ly]
+    
+
+f_control(_tf) =>
+    [_hsfp, _hx, _hy, _lsfp, _lx, _ly] = request.security(syminfo.tickerid, _tf, f_sfp())
+    _hsfp or _lsfp or _hsfp[1] or _lsfp[1]
+    
+    
+f_multitimeframe() =>
+    tbl = table.new(position, 1, 1)
+    txt = ""
+    if f_control("5")
+        txt := txt + "5m SFP Detected\n"
+    if f_control("15")
+        txt := txt + "15m SFP Detected\n"
+    if f_control("30")
+        txt := txt + "30m SFP Detected\n"
+    if f_control("60")
+        txt := txt + "1h SFP Detected\n"
+    if f_control("120")
+        txt := txt + "2h SFP Detected\n"
+    if f_control("240")
+        txt := txt + "4h SFP Detected\n"
+    
+    table.cell(tbl, 0, 0, txt, text_color=textcolortbl, text_size=size.small)
+
+
+[hsfp, hx, hy, lsfp, lx, ly] = f_sfp()
+
+hsfp := is_opposite ? hsfp and open > close : hsfp
+lsfp := is_opposite ? lsfp and open < close : lsfp
+
+if hsfp
+    line.new(hx, hy, bar_index + 1, hy, color=color.red)
+    alert("High SFP Detected!", alert.freq_once_per_bar)
+//plotshape(hsfp?high:na, "High SFP", style=shape.triangledown, location=location.abovebar, color=color.red, text="SFP", textcolor=color.red, size=size.tiny)
+
+if lsfp
+    line.new(lx, ly, bar_index + 1, ly, color=color.green)
+    alert("Low SFP Detected!", alert.freq_once_per_bar)
+//plotshape(lsfp?low:na, "Low SFP", style=shape.triangleup, location=location.belowbar, color=color.green, text="SFP", textcolor=color.green, size=size.tiny)
+
+f_multitimeframe()
+
+
+
+src = hl2
+len = 100
+devlen = 2
+extendit = true
+showfibo = false
+showbroken = false
+brokencol = color.blue
+upcol = color.lime
+dncol = color.red
+widt = 2
+
+prd = 10
+Factor = 5
+Pd = 17
+showpivot = true
+showlabel = false
+showcl = false
+showsr = false
+
+ppsrc = 'High/Low'
+maxnumpp = 20
+ChannelW = 10
+maxnumsr = 7
+min_strength = 2
+linestyle = 'Solid'
+linewidth = 1
+resistancecolor = color.rgb(233, 255, 33)
+supportcolor = color.rgb(0, 4, 255)
+showpp = false
+labelloc = 20
+
+
+
+//prd = input(defval = 17, title="Pivot Point Period", minval = 1, maxval = 50)
+//Factor=input(defval = 3, title = "ATR Factor", minval = 1, step = 0.1)
+//Pd=input(defval = 10, title = "ATR Period", minval=1)
+//showpivot = input(defval = true, title="Show Pivot Points")
+//showlabel = input(defval = false, title="Show Buy/Sell Labels")
+//showcl = input(defval = false, title="Show PP Center Line")
+//showsr = input(defval = false, title="Show Support/Resistance")
+
+
+//src = input(defval = close, title = "Source")
+//len = input(defval = 100, title = "Length", minval = 10)
+//devlen = input(defval = 2., title = "Deviation", minval = 0.1, step = 0.1)
+//extendit = input(defval = true, title = "Extend Lines")
+//showfibo = input(defval = false, title = "Show Fibonacci Levels")
+//showbroken = input(defval = true, title = "Show Broken Channel", inline = "brk")
+//brokencol = input(defval = color.blue, title = "", inline = "brk")
+//upcol = input(defval = color.lime, title = "Up/Down Trend Colors", inline = "trcols")
+//dncol = input(defval = color.red, title = "", inline = "trcols")
+//widt = input(defval = 2, title = "Line Width")
+
+
+var fibo_ratios = array.new_float(0)
+var colors = array.new_color(2)
+if barstate.isfirst
+    array.unshift(colors, upcol)
+    array.unshift(colors, dncol)
+    array.push(fibo_ratios, 0.236)
+    array.push(fibo_ratios, 0.382)
+    array.push(fibo_ratios, 0.618)
+    array.push(fibo_ratios, 0.786)
+
+
+get_channel(src, len) =>
+    mid = math.sum(src, len) / len
+    slope = ta.linreg(src, len, 0) - ta.linreg(src, len, 1)
+    intercept = mid - slope * math.floor(len / 2) + (1 - len % 2) / 2 * slope
+    endy = intercept + slope * (len - 1)
+    dev = 0.0
+    for x = 0 to len - 1 by 1
+        dev += math.pow(src[x] - (slope * (len - x) + intercept), 2)
+        dev
+    dev := math.sqrt(dev / len)
+    [intercept, endy, dev, slope]
+
+[y1_, y2_, dev, slope] = get_channel(src, len)
+
+outofchannel = slope > 0 and close < y2_ - dev * devlen ? 0 : slope < 0 and close > y2_ + dev * devlen ? 2 : -1
+
+var reglines = array.new_line(3)
+var fibolines = array.new_line(4)
+for x = 0 to 2 by 1
+    if not showbroken or outofchannel != x or nz(outofchannel[1], -1) != -1
+        line.delete(array.get(reglines, x))
+    else
+        line.set_color(array.get(reglines, x), color=brokencol)
+        line.set_width(array.get(reglines, x), width=2)
+        line.set_style(array.get(reglines, x), style=line.style_solid)
+        line.set_extend(array.get(reglines, x), extend=extend.none)
+
+    array.set(reglines, x, line.new(x1=bar_index - (len - 1), y1=y1_ + dev * devlen * (x - 1), x2=bar_index, y2=y2_ + dev * devlen * (x - 1), color=array.get(colors, math.round(math.max(math.sign(slope), 0))), style=x % 2 == 1 ? line.style_dashed : line.style_solid, width=widt, extend=extendit ? extend.right : extend.none))
+if showfibo
+    for x = 0 to 3 by 1
+        line.delete(array.get(fibolines, x))
+        array.set(fibolines, x, line.new(x1=bar_index - (len - 1), y1=y1_ - dev * devlen + dev * devlen * 2 * array.get(fibo_ratios, x), x2=bar_index, y2=y2_ - dev * devlen + dev * devlen * 2 * array.get(fibo_ratios, x), color=array.get(colors, math.round(math.max(math.sign(slope), 0))), style=line.style_dotted, width=widt, extend=extendit ? extend.right : extend.none))
+
+var label sidelab = label.new(x=bar_index - (len - 1), y=y1_, text='S', size=size.large)
+txt = slope > 0 ? slope > slope[1] ? '⇑' : '⇗' : slope < 0 ? slope < slope[1] ? '⇓' : '⇘' : '⇒'
+stl = slope > 0 ? slope > slope[1] ? label.style_label_up : label.style_label_upper_right : slope < 0 ? slope < slope[1] ? label.style_label_down : label.style_label_lower_right : label.style_label_right
+label.set_style(sidelab, stl)
+label.set_text(sidelab, txt)
+label.set_x(sidelab, bar_index - (len - 1))
+label.set_y(sidelab, slope > 0 ? y1_ - dev * devlen : slope < 0 ? y1_ + dev * devlen : y1_)
+label.set_color(sidelab, slope > 0 ? upcol : slope < 0 ? dncol : color.blue)
+
+alertcondition(outofchannel, title='Channel Broken', message='Channel Broken')
+
+// direction
+trendisup = math.sign(slope) != math.sign(slope[1]) and slope > 0
+trendisdown = math.sign(slope) != math.sign(slope[1]) and slope < 0
+alertcondition(trendisup, title='Up trend', message='Up trend')
+alertcondition(trendisdown, title='Down trend', message='Down trend')
+
+
+// get Pivot High/Low
+float ph3 = ta.pivothigh(prd, prd)
+float pl3 = ta.pivotlow(prd, prd)
+
+// drawl Pivot Points if "showpivot" is enabled
+plotshape(ph3 and showpivot, text='▼', style=shape.labeldown, color=na, textcolor=color.new(color.red, 0), location=location.abovebar, offset=-prd)
+plotshape(pl3 and showpivot, text='▲', style=shape.labeldown, color=na, textcolor=color.new(color.lime, 0), location=location.belowbar, offset=-prd)
+
+// calculate the Center line using pivot points
+var float center = na
+float lastpp = ph3 ? ph3 : pl3 ? pl3 : na
+if lastpp
+    if na(center)
+        center := lastpp
+        center
+    else
+        //weighted calculation
+        center := (center * 2 + lastpp) / 3
+        center
+
+// upper/lower bands calculation
+Up = center - Factor * ta.atr(Pd)
+Dn = center + Factor * ta.atr(Pd)
+
+// get the trend
+float TUp = na
+float TDown = na
+Trend = 0
+TUp := close[1] > TUp[1] ? math.max(Up, TUp[1]) : Up
+TDown := close[1] < TDown[1] ? math.min(Dn, TDown[1]) : Dn
+Trend := close > TDown[1] ? 1 : close < TUp[1] ? -1 : nz(Trend[1], 1)
+Trailingsl = Trend == 1 ? TUp : TDown
+
+// plot the trend
+linecolor = Trend == 1 and nz(Trend[1]) == 1 ? color.lime : Trend == -1 and nz(Trend[1]) == -1 ? color.red : na
+//plot(Trailingsl, color = linecolor ,  linewidth = 2, title = "PP SuperTrend")
+
+plot(showcl ? center : na, color=showcl ? center < hl2 ? color.blue : color.red : na)
+
+// check and plot the signals
+bsignal = Trend == 1 and Trend[1] == -1
+ssignal = Trend == -1 and Trend[1] == 1
+plotshape(bsignal and showlabel ? Trailingsl : na, title='Buy', text='Buy', location=location.absolute, style=shape.labelup, size=size.tiny, color=color.new(color.lime, 0), textcolor=color.new(color.black, 0))
+plotshape(ssignal and showlabel ? Trailingsl : na, title='Sell', text='Sell', location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.new(color.red, 0), textcolor=color.new(color.white, 0))
+
+//get S/R levels using Pivot Points
+float resistance = na
+float support = na
+support := pl3 ? pl3 : support[1]
+resistance := ph3 ? ph3 : resistance[1]
+
+// if enabled then show S/R levels
+plot(showsr and support ? support : na, color=showsr and support ? color.lime : na, style=plot.style_circles, offset=-prd)
+plot(showsr and resistance ? resistance : na, color=showsr and resistance ? color.red : na, style=plot.style_circles, offset=-prd)
+
+// alerts
+alertcondition(Trend == 1 and Trend[1] == -1, title='Buy Signal', message='Buy Signal')
+alertcondition(Trend == -1 and Trend[1] == 1, title='Sell Signal', message='Sell Signal')
+alertcondition(ta.change(Trend), title='Trend Changed', message='Trend Changed')
+
+
+
+
+float src1 = ppsrc == 'High/Low' ? high : math.max(close, open)
+float src2 = ppsrc == 'High/Low' ? low : math.min(close, open)
+float ph2 = ta.pivothigh(src1, prd, prd)
+float pl2 = ta.pivotlow(src2, prd, prd)
+
+plotshape(ph2 and showpp, text='H', style=shape.labeldown, color=na, textcolor=color.new(color.red, 0), location=location.abovebar, offset=-prd)
+plotshape(pl2 and showpp, text='L', style=shape.labelup, color=na, textcolor=color.new(color.lime, 0), location=location.belowbar, offset=-prd)
+
+Lstyle = linestyle == 'Dashed' ? line.style_dashed : linestyle == 'Solid' ? line.style_solid : line.style_dotted
+
+//calculate maximum S/R channel zone width
+prdhighest = ta.highest(300)
+prdlowest = ta.lowest(300)
+cwidth = (prdhighest - prdlowest) * ChannelW / 100
+
+var pivotvals = array.new_float(0)
+
+if ph2 or pl
+    array.unshift(pivotvals, ph2 ? ph2 : pl)
+    if array.size(pivotvals) > maxnumpp  // limit the array size
+        array.pop(pivotvals)
+
+get_sr_vals(ind) =>
+    float lo = array.get(pivotvals, ind)
+    float hi = lo
+    int numpp = 0
+    for y = 0 to array.size(pivotvals) - 1 by 1
+        float cpp = array.get(pivotvals, y)
+        float wdth = cpp <= lo ? hi - cpp : cpp - lo
+        if wdth <= cwidth  // fits the max channel width?
+            lo := cpp <= lo ? cpp : lo
+            hi := cpp > lo ? cpp : hi
+            numpp += 1
+            numpp
+    [hi, lo, numpp]
+
+var sr_up_level = array.new_float(0)
+var sr_dn_level = array.new_float(0)
+sr_strength = array.new_float(0)
+
+find_loc(strength) =>
+    ret = array.size(sr_strength)
+    for i = ret > 0 ? array.size(sr_strength) - 1 : na to 0 by 1
+        if strength <= array.get(sr_strength, i)
+            break
+        ret := i
+        ret
+    ret
+
+check_sr(hi, lo, strength) =>
+    ret = true
+    for i = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        //included?
+        if array.get(sr_up_level, i) >= lo and array.get(sr_up_level, i) <= hi or array.get(sr_dn_level, i) >= lo and array.get(sr_dn_level, i) <= hi
+            if strength >= array.get(sr_strength, i)
+                array.remove(sr_strength, i)
+                array.remove(sr_up_level, i)
+                array.remove(sr_dn_level, i)
+                ret
+            else
+                ret := false
+                ret
+            break
+    ret
+
+var sr_lines = array.new_line(11, na)
+var sr_labels = array.new_label(11, na)
+
+for x = 1 to 10 by 1
+    rate = 100 * (label.get_y(array.get(sr_labels, x)) - close) / close
+    label.set_text(array.get(sr_labels, x), text=str.tostring(label.get_y(array.get(sr_labels, x))) + '(' + str.tostring(rate, '#.##') + '%)')
+    label.set_x(array.get(sr_labels, x), x=bar_index + labelloc)
+    label.set_color(array.get(sr_labels, x), color=label.get_y(array.get(sr_labels, x)) >= close ? color.red : color.lime)
+    label.set_textcolor(array.get(sr_labels, x), textcolor=label.get_y(array.get(sr_labels, x)) >= close ? color.white : color.black)
+    label.set_style(array.get(sr_labels, x), style=label.get_y(array.get(sr_labels, x)) >= close ? label.style_label_down : label.style_label_up)
+    line.set_color(array.get(sr_lines, x), color=line.get_y1(array.get(sr_lines, x)) >= close ? resistancecolor : supportcolor)
+
+if ph2 or pl
+    //because of new calculation, remove old S/R levels
+    array.clear(sr_up_level)
+    array.clear(sr_dn_level)
+    array.clear(sr_strength)
+    //find S/R zones
+    for x = 0 to array.size(pivotvals) - 1 by 1
+        [hi, lo, strength] = get_sr_vals(x)
+        if check_sr(hi, lo, strength)
+            loc = find_loc(strength)
+            // if strength is in first maxnumsr sr then insert it to the arrays 
+            if loc < maxnumsr and strength >= min_strength
+                array.insert(sr_strength, loc, strength)
+                array.insert(sr_up_level, loc, hi)
+                array.insert(sr_dn_level, loc, lo)
+                // keep size of the arrays = 5
+                if array.size(sr_strength) > maxnumsr
+                    array.pop(sr_strength)
+                    array.pop(sr_up_level)
+                    array.pop(sr_dn_level)
+
+    for x = 1 to 10 by 1
+        line.delete(array.get(sr_lines, x))
+        label.delete(array.get(sr_labels, x))
+
+    for x = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        float mid = math.round_to_mintick((array.get(sr_up_level, x) + array.get(sr_dn_level, x)) / 2)
+        rate = 100 * (mid - close) / close
+
+        array.set(sr_lines, x + 1, line.new(x1=bar_index, y1=mid, x2=bar_index - 1, y2=mid, extend=extend.both, color=mid >= close ? resistancecolor : supportcolor, style=Lstyle, width=linewidth))
+
+f_crossed_over() =>
+    ret = false
+    for x = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        float mid = math.round_to_mintick((array.get(sr_up_level, x) + array.get(sr_dn_level, x)) / 2)
+        if close[1] <= mid and close > mid
+            ret := true
+            ret
+    ret
+
+f_crossed_under() =>
+    ret = false
+    for x = 0 to array.size(sr_up_level) > 0 ? array.size(sr_up_level) - 1 : na by 1
+        float mid = math.round_to_mintick((array.get(sr_up_level, x) + array.get(sr_dn_level, x)) / 2)
+        if close[1] >= mid and close < mid
+            ret := true
+            ret
+    ret
+
+alertcondition(f_crossed_over(), title='Resistance Broken', message='Resistance Broken')
+alertcondition(f_crossed_under(), title='Support Broken', message='Support Broken')
+
+
